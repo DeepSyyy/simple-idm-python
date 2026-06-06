@@ -7,15 +7,33 @@ from urllib.parse import unquote, urlparse
 
 
 class SimpleIDM:
-    def __init__(self, url, output_path, parts=8, progress_callback=None):
+    def __init__(self, url, output_path, parts=8, progress_callback=None, headers=None):
         self.url = url
         self.output_path = output_path
         self.parts = parts
         self.temp_dir = output_path + "_parts"
         self.progress_callback = progress_callback
-        self.session = requests.Session()
+        self.headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            ),
+            "Accept": "*/*",
+            "Accept-Encoding": "identity",
+            "Connection": "keep-alive",
+        }
+
+        if headers:
+            self.headers.update(headers)
+
         self._progress_lock = threading.Lock()
         self._downloaded_bytes = 0
+
+    def _new_session(self):
+        session = requests.Session()
+        session.headers.update(self.headers)
+        return session
 
     @staticmethod
     def filename_from_url(url, fallback="download.bin"):
@@ -72,11 +90,15 @@ class SimpleIDM:
             self.progress_callback(downloaded, total)
 
     def get_file_size(self):
+        session = self._new_session()
+
         try:
-            response = self.session.head(self.url, allow_redirects=True, timeout=20)
+            response = session.head(self.url, allow_redirects=True, timeout=20)
             response.raise_for_status()
         except requests.RequestException:
             return None
+        finally:
+            session.close()
 
         size = response.headers.get("content-length")
 
@@ -89,11 +111,12 @@ class SimpleIDM:
             return None
 
     def check_range_support(self):
+        session = self._new_session()
         headers = {
             "Range": "bytes=0-1"
         }
 
-        response = self.session.get(
+        response = session.get(
             self.url,
             headers=headers,
             stream=True,
@@ -101,6 +124,7 @@ class SimpleIDM:
             timeout=20
         )
         response.close()
+        session.close()
 
         return response.status_code == 206
 
@@ -121,7 +145,8 @@ class SimpleIDM:
             "Range": f"bytes={start + downloaded}-{end}"
         }
 
-        response = self.session.get(
+        session = self._new_session()
+        response = session.get(
             self.url,
             headers=headers,
             stream=True,
@@ -129,23 +154,52 @@ class SimpleIDM:
             timeout=30
         )
 
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
 
-        with open(part_path, "ab") as file:
-            for chunk in response.iter_content(chunk_size=1024 * 512):
-                if chunk:
-                    file.write(chunk)
-                    with self._progress_lock:
-                        self._downloaded_bytes += len(chunk)
-                        self._emit_progress(self._downloaded_bytes, total_size)
+            if response.status_code != 206:
+                raise Exception(
+                    f"Server mengabaikan range request untuk part {part_number}."
+                )
 
-    def merge_parts(self):
+            with open(part_path, "ab") as file:
+                for chunk in response.iter_content(chunk_size=1024 * 512):
+                    if chunk:
+                        file.write(chunk)
+                        downloaded += len(chunk)
+                        with self._progress_lock:
+                            self._downloaded_bytes += len(chunk)
+                            self._emit_progress(self._downloaded_bytes, total_size)
+
+            expected_size = end - start + 1
+            actual_size = os.path.getsize(part_path)
+
+            if actual_size != expected_size:
+                os.remove(part_path)
+                raise Exception(
+                    f"Ukuran part {part_number} tidak valid "
+                    f"({actual_size} dari {expected_size} bytes)."
+                )
+        finally:
+            response.close()
+            session.close()
+
+    def merge_parts(self, file_size):
+        merged_size = 0
+
         with open(self.output_path, "wb") as output:
             for i in range(self.parts):
                 part_path = os.path.join(self.temp_dir, f"part_{i}")
+                merged_size += os.path.getsize(part_path)
 
                 with open(part_path, "rb") as part_file:
                     output.write(part_file.read())
+
+        if merged_size != file_size or os.path.getsize(self.output_path) != file_size:
+            if os.path.exists(self.output_path):
+                os.remove(self.output_path)
+
+            raise Exception("Ukuran file hasil merge tidak sesuai. Download dibatalkan.")
 
         for i in range(self.parts):
             part_path = os.path.join(self.temp_dir, f"part_{i}")
@@ -154,34 +208,45 @@ class SimpleIDM:
         os.rmdir(self.temp_dir)
 
     def download_normal(self, total_size):
-        response = self.session.get(
+        session = self._new_session()
+        response = session.get(
             self.url,
             stream=True,
             allow_redirects=True,
             timeout=30
         )
 
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
 
-        if total_size is None:
-            size = response.headers.get("content-length")
+            if total_size is None:
+                size = response.headers.get("content-length")
 
-            if size:
-                try:
-                    total_size = int(size)
-                except ValueError:
+                if size:
+                    try:
+                        total_size = int(size)
+                    except ValueError:
+                        total_size = 0
+                else:
                     total_size = 0
-            else:
-                total_size = 0
 
-        downloaded = 0
+            downloaded = 0
 
-        with open(self.output_path, "wb") as file:
-            for chunk in response.iter_content(chunk_size=1024 * 512):
-                if chunk:
-                    file.write(chunk)
-                    downloaded += len(chunk)
-                    self._emit_progress(downloaded, total_size)
+            with open(self.output_path, "wb") as file:
+                for chunk in response.iter_content(chunk_size=1024 * 512):
+                    if chunk:
+                        file.write(chunk)
+                        downloaded += len(chunk)
+                        self._emit_progress(downloaded, total_size)
+
+            if total_size and os.path.getsize(self.output_path) != total_size:
+                if os.path.exists(self.output_path):
+                    os.remove(self.output_path)
+
+                raise Exception("Ukuran file hasil download tidak sesuai.")
+        finally:
+            response.close()
+            session.close()
 
     def _current_downloaded_parts_size(self):
         if not os.path.isdir(self.temp_dir):
@@ -209,7 +274,7 @@ class SimpleIDM:
 
         print(f"Ukuran file: {file_size / 1024 / 1024:.2f} MB")
 
-        if not range_supported:
+        if not range_supported or self.parts <= 1:
             print("Server tidak support resume/multi-part.")
             print("Download biasa dimulai...")
             self.download_normal(file_size)
@@ -248,6 +313,6 @@ class SimpleIDM:
                 future.result()
 
         print("Menggabungkan file...")
-        self.merge_parts()
+        self.merge_parts(file_size)
 
         print("Download selesai.")

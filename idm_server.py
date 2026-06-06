@@ -485,7 +485,7 @@ class DownloadManager:
         os.makedirs(directory, exist_ok=True)
         return SimpleIDM.unique_path(output_path)
 
-    def start_download(self, url, filename=None, download_dir=None):
+    def start_download(self, url, filename=None, download_dir=None, referrer=None):
         filename = self._guess_filename(url, filename)
         category = self.category_for_filename(filename)
 
@@ -535,13 +535,13 @@ class DownloadManager:
 
         thread = threading.Thread(
             target=self._run_download,
-            args=(task_id, url, output_path),
+            args=(task_id, url, output_path, referrer),
             daemon=True,
         )
         thread.start()
         return task_id, output_path
 
-    def _run_download(self, task_id, url, output_path):
+    def _run_download(self, task_id, url, output_path, referrer=None):
         def on_progress(downloaded, total):
             with self.lock:
                 now = time.monotonic()
@@ -558,11 +558,17 @@ class DownloadManager:
             self.tasks[task_id]["status"] = "downloading"
 
         try:
+            headers = {}
+
+            if referrer:
+                headers["Referer"] = referrer
+
             SimpleIDM(
                 url=url,
                 output_path=output_path,
                 parts=self.parts,
                 progress_callback=on_progress,
+                headers=headers,
             ).download()
 
             with self.lock:
@@ -634,6 +640,7 @@ def make_handler(manager):
                 url = query.get("url", [""])[0].strip()
                 filename = query.get("filename", [None])[0]
                 download_dir = query.get("download_dir", [None])[0]
+                referrer = query.get("referrer", [None])[0]
 
                 if not url:
                     self._send_json({"ok": False, "error": "Parameter url kosong."}, 400)
@@ -644,6 +651,7 @@ def make_handler(manager):
                         url,
                         filename=filename,
                         download_dir=download_dir,
+                        referrer=referrer,
                     )
                 except DownloadCancelled as exc:
                     self._send_json({"ok": False, "error": str(exc)}, 409)
@@ -676,6 +684,7 @@ def make_handler(manager):
             url = str(payload.get("url", "")).strip()
             filename = payload.get("filename")
             download_dir = payload.get("download_dir")
+            referrer = payload.get("referrer")
 
             if not url:
                 self._send_json({"ok": False, "error": "URL kosong."}, 400)
@@ -686,6 +695,7 @@ def make_handler(manager):
                     url,
                     filename=filename or None,
                     download_dir=download_dir or None,
+                    referrer=referrer or None,
                 )
             except DownloadCancelled as exc:
                 self._send_json({"ok": False, "error": str(exc)}, 409)

@@ -10,14 +10,14 @@ extensionApi.runtime.onInstalled.addListener(() => {
   });
 });
 
-async function sendToSimpleIDM(url, filename) {
+async function sendToSimpleIDM(url, filename, referrer) {
   const cleanFilename = filename ? filename.split(/[\\/]/).pop() : undefined;
   const response = await fetch(APP_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ url, filename: cleanFilename })
+    body: JSON.stringify({ url, filename: cleanFilename, referrer })
   });
   const payload = await response.json().catch(() => ({}));
 
@@ -72,7 +72,7 @@ extensionApi.contextMenus.onClicked.addListener(async (info) => {
   }
 
   try {
-    await sendToSimpleIDM(info.linkUrl);
+    await sendToSimpleIDM(info.linkUrl, undefined, info.pageUrl);
     notify("SimpleIDM", "Link dikirim ke aplikasi.");
   } catch (error) {
     notify("SimpleIDM belum aktif", "Jalankan aplikasi SimpleIDM dulu.");
@@ -98,7 +98,11 @@ extensionApi.downloads.onCreated.addListener(async (downloadItem) => {
   }
 
   try {
-    await sendToSimpleIDM(downloadItem.url, downloadItem.filename);
+    await sendToSimpleIDM(
+      downloadItem.url,
+      downloadItem.filename,
+      downloadItem.referrer
+    );
     notify("SimpleIDM", "Download browser dialihkan ke aplikasi.");
   } catch (error) {
     notify("SimpleIDM", `${error.message} Download dibatalkan.`);
