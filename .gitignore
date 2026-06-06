@@ -1,1 +1,40 @@
-/downloads
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Local configuration
+.env
+.env.*
+
+# Download output and temporary parts
+downloads/
+*_parts/
+*.part
+*.part.*
+
+# Build output
+build/
+dist/
+*.spec
+
+# Packaging and test cache
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# OS and editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
