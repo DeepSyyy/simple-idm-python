@@ -24,6 +24,7 @@ downloads/
 build/
 dist/
 installer-output/
+venv-win/
 *.spec
 
 # Packaging and test cache
