@@ -1,8 +1,10 @@
 const APP_URL = "http://127.0.0.1:8765/download";
+const extensionApi = typeof browser !== "undefined" ? browser : chrome;
 const capturedDownloadIds = new Set();
+const restoredUrls = new Map();
 
-chrome.runtime.onInstalled.addListener(() => {
-  chrome.contextMenus.create({
+extensionApi.runtime.onInstalled.addListener(() => {
+  extensionApi.contextMenus.create({
     id: "simpleidm-download-link",
     title: "Download with SimpleIDM",
     contexts: ["link"]
@@ -10,12 +12,13 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 async function sendToSimpleIDM(url, filename) {
+  const cleanFilename = filename ? filename.split(/[\\/]/).pop() : undefined;
   const response = await fetch(APP_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ url, filename })
+    body: JSON.stringify({ url, filename: cleanFilename })
   });
   const payload = await response.json().catch(() => ({}));
 
@@ -27,7 +30,7 @@ async function sendToSimpleIDM(url, filename) {
 }
 
 function notify(title, message) {
-  chrome.notifications.create({
+  extensionApi.notifications.create({
     type: "basic",
     iconUrl: "icon.svg",
     title,
@@ -36,9 +39,13 @@ function notify(title, message) {
 }
 
 function downloadAction(action, ...args) {
+  if (typeof browser !== "undefined") {
+    return extensionApi.downloads[action](...args);
+  }
+
   return new Promise((resolve, reject) => {
-    chrome.downloads[action](...args, (...callbackArgs) => {
-      const error = chrome.runtime.lastError;
+    extensionApi.downloads[action](...args, (...callbackArgs) => {
+      const error = extensionApi.runtime.lastError;
 
       if (error) {
         reject(new Error(error.message));
@@ -50,20 +57,34 @@ function downloadAction(action, ...args) {
   });
 }
 
-async function pauseBrowserDownload(downloadId) {
-  try {
-    await downloadAction("pause", downloadId);
-    return true;
-  } catch (error) {
+function shouldSkipCapture(url) {
+  const remaining = restoredUrls.get(url) || 0;
+
+  if (remaining <= 0) {
     return false;
   }
+
+  if (remaining === 1) {
+    restoredUrls.delete(url);
+  } else {
+    restoredUrls.set(url, remaining - 1);
+  }
+
+  return true;
 }
 
-async function resumeBrowserDownload(downloadId) {
+async function restoreBrowserDownload(url) {
+  restoredUrls.set(url, (restoredUrls.get(url) || 0) + 1);
+
   try {
-    await downloadAction("resume", downloadId);
+    await downloadAction("download", {
+      url,
+      conflictAction: "uniquify",
+      saveAs: false
+    });
   } catch (error) {
-    // If the browser cannot resume, keep the notification as the source of truth.
+    restoredUrls.delete(url);
+    notify("SimpleIDM", `Gagal mengembalikan download browser: ${error.message}`);
   }
 }
 
@@ -77,7 +98,7 @@ async function cancelBrowserDownload(downloadId) {
   }
 }
 
-chrome.contextMenus.onClicked.addListener(async (info) => {
+extensionApi.contextMenus.onClicked.addListener(async (info) => {
   if (info.menuItemId !== "simpleidm-download-link" || !info.linkUrl) {
     return;
   }
@@ -90,8 +111,12 @@ chrome.contextMenus.onClicked.addListener(async (info) => {
   }
 });
 
-chrome.downloads.onCreated.addListener(async (downloadItem) => {
+extensionApi.downloads.onCreated.addListener(async (downloadItem) => {
   if (!downloadItem.url || !downloadItem.url.startsWith("http")) {
+    return;
+  }
+
+  if (shouldSkipCapture(downloadItem.url)) {
     return;
   }
 
@@ -101,17 +126,18 @@ chrome.downloads.onCreated.addListener(async (downloadItem) => {
 
   capturedDownloadIds.add(downloadItem.id);
 
-  const paused = await pauseBrowserDownload(downloadItem.id);
+  try {
+    await cancelBrowserDownload(downloadItem.id);
+  } catch (error) {
+    notify("SimpleIDM", `Gagal mengambil alih download browser: ${error.message}`);
+    return;
+  }
 
   try {
     await sendToSimpleIDM(downloadItem.url, downloadItem.filename);
-    await cancelBrowserDownload(downloadItem.id);
     notify("SimpleIDM", "Download browser dialihkan ke aplikasi.");
   } catch (error) {
-    if (paused) {
-      await resumeBrowserDownload(downloadItem.id);
-    }
-
-    notify("SimpleIDM", `${error.message} Download tetap berjalan di browser.`);
+    await restoreBrowserDownload(downloadItem.url);
+    notify("SimpleIDM", `${error.message} Download dikembalikan ke browser.`);
   }
 });

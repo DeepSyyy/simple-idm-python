@@ -26,6 +26,7 @@ class SimpleIDMApp:
         self.ask_path_var = tk.BooleanVar(value=ask_path)
         self.server = None
         self.server_thread = None
+        self.progress_is_indeterminate = False
 
         self.manager = DownloadManager(
             download_dir=self.download_dir,
@@ -216,7 +217,7 @@ class SimpleIDMApp:
         seen = set()
         active_count = 0
         finished_count = 0
-        aggregate_percent = []
+        active_tasks = []
 
         for task_id, task in tasks.items():
             seen.add(task_id)
@@ -229,29 +230,42 @@ class SimpleIDMApp:
 
             if task["status"] in ("queued", "downloading"):
                 active_count += 1
+                active_tasks.append((task_id, task))
             elif task["status"] == "finished":
                 finished_count += 1
-
-            total = task.get("total") or 0
-            downloaded = task.get("downloaded") or 0
-
-            if total > 0:
-                aggregate_percent.append(min(100, downloaded / total * 100))
 
         for item_id in existing - seen:
             self.tree.delete(item_id)
 
-        if aggregate_percent:
-            self.progress.configure(value=sum(aggregate_percent) / len(aggregate_percent), mode="determinate")
-        elif active_count:
-            self.progress.configure(mode="indeterminate")
-            self.progress.start(10)
+        if active_tasks:
+            _, current_task = sorted(active_tasks, key=lambda item: int(item[0]))[-1]
+            total = current_task.get("total") or 0
+            downloaded = current_task.get("downloaded") or 0
+
+            if total > 0:
+                self._set_determinate_progress(min(100, downloaded / total * 100))
+            else:
+                self._set_indeterminate_progress()
+        elif finished_count:
+            self._set_determinate_progress(100)
         else:
-            self.progress.stop()
-            self.progress.configure(value=0, mode="determinate")
+            self._set_determinate_progress(0)
 
         self.summary_label.configure(text=f"{active_count} aktif, {finished_count} selesai")
         self.root.after(700, self._refresh_tasks)
+
+    def _set_indeterminate_progress(self):
+        if not self.progress_is_indeterminate:
+            self.progress.configure(mode="indeterminate")
+            self.progress.start(10)
+            self.progress_is_indeterminate = True
+
+    def _set_determinate_progress(self, value):
+        if self.progress_is_indeterminate:
+            self.progress.stop()
+            self.progress_is_indeterminate = False
+
+        self.progress.configure(value=value, mode="determinate")
 
     def _task_values(self, task_id, task):
         path = task.get("output_path") or ""
