@@ -1,0 +1,253 @@
+import os
+import re
+import threading
+import requests
+from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import unquote, urlparse
+
+
+class SimpleIDM:
+    def __init__(self, url, output_path, parts=8, progress_callback=None):
+        self.url = url
+        self.output_path = output_path
+        self.parts = parts
+        self.temp_dir = output_path + "_parts"
+        self.progress_callback = progress_callback
+        self.session = requests.Session()
+        self._progress_lock = threading.Lock()
+        self._downloaded_bytes = 0
+
+    @staticmethod
+    def filename_from_url(url, fallback="download.bin"):
+        parsed = urlparse(url)
+        name = os.path.basename(parsed.path.rstrip("/"))
+        name = unquote(name).strip()
+        name = re.sub(r'[\\/:*?"<>|]+', "_", name)
+        return name or fallback
+
+    @staticmethod
+    def filename_from_headers(headers):
+        disposition = headers.get("content-disposition", "")
+        match = re.search(r'filename\*=UTF-8\'\'([^;]+)', disposition, re.I)
+
+        if match:
+            return unquote(match.group(1).strip().strip('"'))
+
+        match = re.search(r'filename="?([^";]+)"?', disposition, re.I)
+
+        if match:
+            return match.group(1).strip()
+
+        return None
+
+    @staticmethod
+    def unique_path(path):
+        if not os.path.exists(path):
+            return path
+
+        base, ext = os.path.splitext(path)
+        counter = 1
+
+        while True:
+            candidate = f"{base} ({counter}){ext}"
+
+            if not os.path.exists(candidate):
+                return candidate
+
+            counter += 1
+
+    @classmethod
+    def output_path_for_url(cls, url, download_dir="downloads", filename=None):
+        os.makedirs(download_dir, exist_ok=True)
+
+        if not filename:
+            filename = cls.filename_from_url(url)
+
+        filename = re.sub(r'[\\/:*?"<>|]+', "_", filename).strip()
+        filename = filename or "download.bin"
+        return cls.unique_path(os.path.join(download_dir, filename))
+
+    def _emit_progress(self, downloaded, total):
+        if self.progress_callback:
+            self.progress_callback(downloaded, total)
+
+    def get_file_size(self):
+        try:
+            response = self.session.head(self.url, allow_redirects=True, timeout=20)
+            response.raise_for_status()
+        except requests.RequestException:
+            return None
+
+        size = response.headers.get("content-length")
+
+        if size is None:
+            return None
+
+        try:
+            return int(size)
+        except ValueError:
+            return None
+
+    def check_range_support(self):
+        headers = {
+            "Range": "bytes=0-1"
+        }
+
+        response = self.session.get(
+            self.url,
+            headers=headers,
+            stream=True,
+            allow_redirects=True,
+            timeout=20
+        )
+        response.close()
+
+        return response.status_code == 206
+
+    def download_part(self, part_number, start, end, total_size):
+        os.makedirs(self.temp_dir, exist_ok=True)
+
+        part_path = os.path.join(self.temp_dir, f"part_{part_number}")
+
+        downloaded = 0
+
+        if os.path.exists(part_path):
+            downloaded = os.path.getsize(part_path)
+
+        if start + downloaded > end:
+            return
+
+        headers = {
+            "Range": f"bytes={start + downloaded}-{end}"
+        }
+
+        response = self.session.get(
+            self.url,
+            headers=headers,
+            stream=True,
+            allow_redirects=True,
+            timeout=30
+        )
+
+        response.raise_for_status()
+
+        with open(part_path, "ab") as file:
+            for chunk in response.iter_content(chunk_size=1024 * 512):
+                if chunk:
+                    file.write(chunk)
+                    with self._progress_lock:
+                        self._downloaded_bytes += len(chunk)
+                        self._emit_progress(self._downloaded_bytes, total_size)
+
+    def merge_parts(self):
+        with open(self.output_path, "wb") as output:
+            for i in range(self.parts):
+                part_path = os.path.join(self.temp_dir, f"part_{i}")
+
+                with open(part_path, "rb") as part_file:
+                    output.write(part_file.read())
+
+        for i in range(self.parts):
+            part_path = os.path.join(self.temp_dir, f"part_{i}")
+            os.remove(part_path)
+
+        os.rmdir(self.temp_dir)
+
+    def download_normal(self, total_size):
+        response = self.session.get(
+            self.url,
+            stream=True,
+            allow_redirects=True,
+            timeout=30
+        )
+
+        response.raise_for_status()
+
+        if total_size is None:
+            size = response.headers.get("content-length")
+
+            if size:
+                try:
+                    total_size = int(size)
+                except ValueError:
+                    total_size = 0
+            else:
+                total_size = 0
+
+        downloaded = 0
+
+        with open(self.output_path, "wb") as file:
+            for chunk in response.iter_content(chunk_size=1024 * 512):
+                if chunk:
+                    file.write(chunk)
+                    downloaded += len(chunk)
+                    self._emit_progress(downloaded, total_size)
+
+    def _current_downloaded_parts_size(self):
+        if not os.path.isdir(self.temp_dir):
+            return 0
+
+        downloaded = 0
+
+        for name in os.listdir(self.temp_dir):
+            downloaded += os.path.getsize(os.path.join(self.temp_dir, name))
+
+        return downloaded
+
+    def download(self):
+        os.makedirs(os.path.dirname(self.output_path) or ".", exist_ok=True)
+        file_size = self.get_file_size()
+
+        if file_size is None:
+            print("Server tidak memberikan ukuran file.")
+            print("Download biasa dimulai...")
+            self.download_normal(None)
+            print("Download selesai.")
+            return
+
+        range_supported = self.check_range_support()
+
+        print(f"Ukuran file: {file_size / 1024 / 1024:.2f} MB")
+
+        if not range_supported:
+            print("Server tidak support resume/multi-part.")
+            print("Download biasa dimulai...")
+            self.download_normal(file_size)
+            print("Download selesai.")
+            return
+
+        part_size = file_size // self.parts
+        ranges = []
+
+        for i in range(self.parts):
+            start = i * part_size
+            end = start + part_size - 1
+
+            if i == self.parts - 1:
+                end = file_size - 1
+
+            ranges.append((i, start, end))
+
+        print(f"Download multi-part dengan {self.parts} bagian...")
+        self._downloaded_bytes = self._current_downloaded_parts_size()
+
+        with ThreadPoolExecutor(max_workers=self.parts) as executor:
+            futures = []
+
+            for part_number, start, end in ranges:
+                future = executor.submit(
+                    self.download_part,
+                    part_number,
+                    start,
+                    end,
+                    file_size
+                )
+                futures.append(future)
+
+            for future in futures:
+                future.result()
+
+        print("Menggabungkan file...")
+        self.merge_parts()
+
+        print("Download selesai.")

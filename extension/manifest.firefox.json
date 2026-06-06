@@ -1,0 +1,26 @@
+{
+  "manifest_version": 2,
+  "name": "SimpleIDM Link Capture",
+  "version": "1.0.0",
+  "description": "Send browser downloads and link clicks to the local SimpleIDM Python app.",
+  "permissions": [
+    "contextMenus",
+    "downloads",
+    "notifications",
+    "http://127.0.0.1:8765/*",
+    "http://localhost:8765/*",
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "simpleidm@example.local"
+    }
+  },
+  "icons": {
+    "128": "icon.svg"
+  }
+}
