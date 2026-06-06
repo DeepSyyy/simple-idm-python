@@ -315,6 +315,8 @@ class SimpleIDMApp:
 
         if status == "failed" and task.get("error"):
             status = f"failed: {task['error']}"
+        elif task.get("note") and status in ("queued", "downloading"):
+            status = f"{status} ({task['note']})"
 
         return (
             name,

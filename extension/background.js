@@ -10,14 +10,44 @@ extensionApi.runtime.onInstalled.addListener(() => {
   });
 });
 
+async function getCookieHeader(url) {
+  try {
+    const cookies = typeof browser !== "undefined"
+      ? await extensionApi.cookies.getAll({ url })
+      : await new Promise((resolve, reject) => {
+          extensionApi.cookies.getAll({ url }, (items) => {
+            const error = extensionApi.runtime.lastError;
+
+            if (error) {
+              reject(new Error(error.message));
+              return;
+            }
+
+            resolve(items);
+          });
+        });
+
+    return cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
+  } catch (error) {
+    return "";
+  }
+}
+
 async function sendToSimpleIDM(url, filename, referrer) {
   const cleanFilename = filename ? filename.split(/[\\/]/).pop() : undefined;
+  const cookieHeader = await getCookieHeader(url);
   const response = await fetch(APP_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ url, filename: cleanFilename, referrer })
+    body: JSON.stringify({
+      url,
+      filename: cleanFilename,
+      referrer,
+      cookies: cookieHeader,
+      user_agent: navigator.userAgent
+    })
   });
   const payload = await response.json().catch(() => ({}));
 

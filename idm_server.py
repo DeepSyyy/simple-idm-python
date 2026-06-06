@@ -485,7 +485,15 @@ class DownloadManager:
         os.makedirs(directory, exist_ok=True)
         return SimpleIDM.unique_path(output_path)
 
-    def start_download(self, url, filename=None, download_dir=None, referrer=None):
+    def start_download(
+        self,
+        url,
+        filename=None,
+        download_dir=None,
+        referrer=None,
+        cookies=None,
+        user_agent=None,
+    ):
         filename = self._guess_filename(url, filename)
         category = self.category_for_filename(filename)
 
@@ -528,6 +536,9 @@ class DownloadManager:
                 "speed": 0,
                 "download_dir": target_dir,
                 "category": category,
+                "note": "Single stream otomatis untuk host sensitif rate-limit"
+                if "gofile.io" in urlparse(url).netloc.lower()
+                else None,
                 "error": None,
                 "_last_downloaded": 0,
                 "_last_time": now,
@@ -535,13 +546,21 @@ class DownloadManager:
 
         thread = threading.Thread(
             target=self._run_download,
-            args=(task_id, url, output_path, referrer),
+            args=(task_id, url, output_path, referrer, cookies, user_agent),
             daemon=True,
         )
         thread.start()
         return task_id, output_path
 
-    def _run_download(self, task_id, url, output_path, referrer=None):
+    def _run_download(
+        self,
+        task_id,
+        url,
+        output_path,
+        referrer=None,
+        cookies=None,
+        user_agent=None,
+    ):
         def on_progress(downloaded, total):
             with self.lock:
                 now = time.monotonic()
@@ -562,6 +581,12 @@ class DownloadManager:
 
             if referrer:
                 headers["Referer"] = referrer
+
+            if cookies:
+                headers["Cookie"] = cookies
+
+            if user_agent:
+                headers["User-Agent"] = user_agent
 
             SimpleIDM(
                 url=url,
@@ -641,6 +666,8 @@ def make_handler(manager):
                 filename = query.get("filename", [None])[0]
                 download_dir = query.get("download_dir", [None])[0]
                 referrer = query.get("referrer", [None])[0]
+                cookies = query.get("cookies", [None])[0]
+                user_agent = query.get("user_agent", [None])[0]
 
                 if not url:
                     self._send_json({"ok": False, "error": "Parameter url kosong."}, 400)
@@ -652,6 +679,8 @@ def make_handler(manager):
                         filename=filename,
                         download_dir=download_dir,
                         referrer=referrer,
+                        cookies=cookies,
+                        user_agent=user_agent,
                     )
                 except DownloadCancelled as exc:
                     self._send_json({"ok": False, "error": str(exc)}, 409)
@@ -685,6 +714,8 @@ def make_handler(manager):
             filename = payload.get("filename")
             download_dir = payload.get("download_dir")
             referrer = payload.get("referrer")
+            cookies = payload.get("cookies")
+            user_agent = payload.get("user_agent")
 
             if not url:
                 self._send_json({"ok": False, "error": "URL kosong."}, 400)
@@ -696,6 +727,8 @@ def make_handler(manager):
                     filename=filename or None,
                     download_dir=download_dir or None,
                     referrer=referrer or None,
+                    cookies=cookies or None,
+                    user_agent=user_agent or None,
                 )
             except DownloadCancelled as exc:
                 self._send_json({"ok": False, "error": str(exc)}, 409)

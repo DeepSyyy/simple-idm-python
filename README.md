@@ -78,4 +78,6 @@ Jika SimpleIDM belum terbuka, extension akan membatalkan download dan menampilka
 
 Beberapa server tidak mengirim ukuran file (`Content-Length`). Untuk link seperti itu aplikasi tetap download biasa, tetapi progress persentase mungkin tidak tersedia.
 
+Extension membutuhkan permission cookies agar SimpleIDM bisa mendownload file yang membutuhkan session/login browser. Cookies hanya dikirim ke aplikasi lokal di `127.0.0.1`.
+
 Extension browser belum dipublish ke Chrome Web Store atau Firefox Add-ons, jadi pemasangan extension masih manual dari folder installer.
