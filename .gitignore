@@ -23,6 +23,7 @@ downloads/
 # Build output
 build/
 dist/
+installer-output/
 *.spec
 
 # Packaging and test cache

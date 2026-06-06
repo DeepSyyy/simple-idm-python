@@ -84,6 +84,48 @@ dist/SimpleIDM
 
 Catatan: executable harus dibuild di OS target. Build dari Linux/WSL menghasilkan binary Linux. Untuk file `.exe` Windows, jalankan build di Windows.
 
+## Build Installer Windows
+
+Installer membuat user tidak perlu install Python. Installer membundel:
+
+- `SimpleIDM.exe`
+- folder `extension/`
+- `README.md`
+- shortcut Start Menu/Desktop
+
+Langkah di Windows:
+
+1. Install Python Windows.
+2. Install Inno Setup: `https://jrsoftware.org/isinfo.php`
+3. Build executable:
+
+```powershell
+python -m venv venv-win
+venv-win\Scripts\activate
+pip install -r requirements.txt
+python build_executable.py
+```
+
+4. Build installer dengan Inno Setup:
+
+```powershell
+iscc installer\SimpleIDM.iss
+```
+
+Hasil installer:
+
+```text
+installer-output\SimpleIDM-Setup.exe
+```
+
+Catatan extension: browser modern tidak mengizinkan installer biasa memasang extension secara diam-diam. Setelah install aplikasi, user tetap perlu load extension dari folder install:
+
+```text
+C:\Program Files\SimpleIDM\extension
+```
+
+Untuk distribusi yang benar-benar sekali klik, extension harus dipublish ke Chrome Web Store / Firefox Add-ons, lalu README installer cukup mengarahkan user ke link extension tersebut.
+
 ## Install Extension Browser
 
 Untuk Chrome, Edge, Brave, atau browser Chromium lain:
