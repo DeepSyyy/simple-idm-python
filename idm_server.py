@@ -14,6 +14,26 @@ from downloader import SimpleIDM
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 DEFAULT_DOWNLOAD_DIR = "downloads"
+CATEGORY_EXTENSIONS = {
+    "Compressed": {".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz", ".iso"},
+    "Documents": {
+        ".pdf",
+        ".doc",
+        ".docx",
+        ".txt",
+        ".rtf",
+        ".odt",
+        ".xls",
+        ".xlsx",
+        ".ppt",
+        ".pptx",
+        ".csv",
+        ".md",
+    },
+    "Music": {".mp3", ".wav", ".flac", ".aac", ".ogg", ".m4a", ".wma"},
+    "Video": {".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".webm", ".m4v"},
+    "Programs": {".exe", ".msi", ".apk", ".dmg", ".pkg", ".deb", ".rpm", ".appimage"},
+}
 
 
 class DownloadCancelled(Exception):
@@ -384,15 +404,33 @@ DASHBOARD_HTML = """<!doctype html>
 
 
 class DownloadManager:
-    def __init__(self, download_dir=DEFAULT_DOWNLOAD_DIR, parts=8, ask_path=False, path_chooser=None):
+    def __init__(
+        self,
+        download_dir=DEFAULT_DOWNLOAD_DIR,
+        parts=8,
+        ask_path=False,
+        path_chooser=None,
+        confirm_chooser=None,
+    ):
         self.download_dir = download_dir
         self.parts = parts
         self.ask_path = ask_path
         self.path_chooser = path_chooser
+        self.confirm_chooser = confirm_chooser
         self.tasks = {}
         self.lock = threading.Lock()
         self.dialog_lock = threading.Lock()
         os.makedirs(self.download_dir, exist_ok=True)
+
+    @staticmethod
+    def category_for_filename(filename):
+        extension = os.path.splitext(filename)[1].lower()
+
+        for category, extensions in CATEGORY_EXTENSIONS.items():
+            if extension in extensions:
+                return category
+
+        return "General"
 
     def _guess_filename(self, url, filename=None):
         if filename:
@@ -449,17 +487,34 @@ class DownloadManager:
 
     def start_download(self, url, filename=None, download_dir=None):
         filename = self._guess_filename(url, filename)
+        category = self.category_for_filename(filename)
 
         if self.ask_path and not download_dir:
             output_path = self._ask_output_path(filename)
             target_dir = os.path.dirname(output_path) or self.download_dir
         else:
-            target_dir = download_dir or self.download_dir
+            base_dir = download_dir or self.download_dir
+            target_dir = os.path.join(base_dir, category)
             output_path = SimpleIDM.output_path_for_url(
                 url,
                 download_dir=target_dir,
                 filename=filename,
             )
+
+        if self.confirm_chooser:
+            confirmed = self.confirm_chooser(
+                {
+                    "url": url,
+                    "filename": os.path.basename(output_path),
+                    "category": category,
+                    "output_path": output_path,
+                    "download_dir": target_dir,
+                }
+            )
+
+            if not confirmed:
+                raise DownloadCancelled("Download dibatalkan oleh user.")
+
         task_id = str(len(self.tasks) + 1)
         now = time.monotonic()
 
@@ -472,6 +527,7 @@ class DownloadManager:
                 "total": 0,
                 "speed": 0,
                 "download_dir": target_dir,
+                "category": category,
                 "error": None,
                 "_last_downloaded": 0,
                 "_last_time": now,

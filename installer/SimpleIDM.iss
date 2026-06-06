@@ -1,5 +1,5 @@
 #define MyAppName "SimpleIDM"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "SimpleIDM Python"
 #define MyAppExeName "SimpleIDM.exe"
 
@@ -12,7 +12,7 @@ DefaultDirName={localappdata}\Programs\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir=..\installer-output
-OutputBaseFilename=SimpleIDM-Setup
+OutputBaseFilename=SimpleIDM-Setup-{#MyAppVersion}
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern

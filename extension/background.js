@@ -1,7 +1,6 @@
 const APP_URL = "http://127.0.0.1:8765/download";
 const extensionApi = typeof browser !== "undefined" ? browser : chrome;
 const capturedDownloadIds = new Set();
-const restoredUrls = new Map();
 
 extensionApi.runtime.onInstalled.addListener(() => {
   extensionApi.contextMenus.create({
@@ -57,37 +56,6 @@ function downloadAction(action, ...args) {
   });
 }
 
-function shouldSkipCapture(url) {
-  const remaining = restoredUrls.get(url) || 0;
-
-  if (remaining <= 0) {
-    return false;
-  }
-
-  if (remaining === 1) {
-    restoredUrls.delete(url);
-  } else {
-    restoredUrls.set(url, remaining - 1);
-  }
-
-  return true;
-}
-
-async function restoreBrowserDownload(url) {
-  restoredUrls.set(url, (restoredUrls.get(url) || 0) + 1);
-
-  try {
-    await downloadAction("download", {
-      url,
-      conflictAction: "uniquify",
-      saveAs: false
-    });
-  } catch (error) {
-    restoredUrls.delete(url);
-    notify("SimpleIDM", `Gagal mengembalikan download browser: ${error.message}`);
-  }
-}
-
 async function cancelBrowserDownload(downloadId) {
   await downloadAction("cancel", downloadId);
 
@@ -107,16 +75,12 @@ extensionApi.contextMenus.onClicked.addListener(async (info) => {
     await sendToSimpleIDM(info.linkUrl);
     notify("SimpleIDM", "Link dikirim ke aplikasi.");
   } catch (error) {
-    notify("SimpleIDM belum aktif", "Jalankan python idm_server.py dulu.");
+    notify("SimpleIDM belum aktif", "Jalankan aplikasi SimpleIDM dulu.");
   }
 });
 
 extensionApi.downloads.onCreated.addListener(async (downloadItem) => {
   if (!downloadItem.url || !downloadItem.url.startsWith("http")) {
-    return;
-  }
-
-  if (shouldSkipCapture(downloadItem.url)) {
     return;
   }
 
@@ -137,7 +101,6 @@ extensionApi.downloads.onCreated.addListener(async (downloadItem) => {
     await sendToSimpleIDM(downloadItem.url, downloadItem.filename);
     notify("SimpleIDM", "Download browser dialihkan ke aplikasi.");
   } catch (error) {
-    await restoreBrowserDownload(downloadItem.url);
-    notify("SimpleIDM", `${error.message} Download dikembalikan ke browser.`);
+    notify("SimpleIDM", `${error.message} Download dibatalkan.`);
   }
 });

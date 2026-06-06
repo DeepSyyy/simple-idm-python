@@ -5,6 +5,7 @@ import tkinter as tk
 from http.server import ThreadingHTTPServer
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
+from app_info import APP_NAME, APP_VERSION
 from idm_server import DEFAULT_DOWNLOAD_DIR, DEFAULT_HOST, DEFAULT_PORT, DownloadCancelled, DownloadManager, make_handler
 
 
@@ -33,9 +34,10 @@ class SimpleIDMApp:
             parts=self.parts,
             ask_path=ask_path,
             path_chooser=self.ask_output_path,
+            confirm_chooser=self.confirm_download,
         )
 
-        self.root.title("SimpleIDM")
+        self.root.title(f"{APP_NAME} {APP_VERSION}")
         self.root.geometry("980x560")
         self.root.minsize(760, 440)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
@@ -85,7 +87,7 @@ class SimpleIDMApp:
         title_area = ttk.Frame(header, style="App.TFrame")
         title_area.pack(side="left", fill="x", expand=True)
 
-        ttk.Label(title_area, text="SimpleIDM", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(title_area, text=f"{APP_NAME} {APP_VERSION}", style="Title.TLabel").pack(anchor="w")
         self.server_label = ttk.Label(
             title_area,
             text=f"Receiver aktif di http://{self.host}:{self.port}",
@@ -120,14 +122,16 @@ class SimpleIDMApp:
             command=self.toggle_ask_path,
         ).pack(anchor="w", pady=(8, 0))
 
-        columns = ("name", "status", "progress", "speed", "path")
+        columns = ("name", "category", "status", "progress", "speed", "path")
         self.tree = ttk.Treeview(outer, columns=columns, show="headings", selectmode="browse")
         self.tree.heading("name", text="File")
+        self.tree.heading("category", text="Kategori")
         self.tree.heading("status", text="Status")
         self.tree.heading("progress", text="Progress")
         self.tree.heading("speed", text="Speed")
         self.tree.heading("path", text="Path")
         self.tree.column("name", width=220, minwidth=160)
+        self.tree.column("category", width=110, minwidth=90)
         self.tree.column("status", width=110, minwidth=90)
         self.tree.column("progress", width=120, minwidth=100)
         self.tree.column("speed", width=110, minwidth=90)
@@ -174,6 +178,32 @@ class SimpleIDMApp:
 
     def toggle_ask_path(self):
         self.manager.ask_path = self.ask_path_var.get()
+
+    def confirm_download(self, details):
+        if threading.current_thread() is threading.main_thread():
+            return self._show_confirm_dialog(details)
+
+        event = threading.Event()
+        result = {"confirmed": False}
+
+        def confirm_on_main_thread():
+            result["confirmed"] = self._show_confirm_dialog(details)
+            event.set()
+
+        self.root.after(0, confirm_on_main_thread)
+        event.wait()
+        return result["confirmed"]
+
+    def _show_confirm_dialog(self, details):
+        message = (
+            "SimpleIDM akan mengambil alih download ini.\n\n"
+            f"File: {details['filename']}\n"
+            f"Kategori: {details['category']}\n"
+            f"Simpan ke: {details['output_path']}\n\n"
+            f"URL:\n{details['url']}\n\n"
+            "Lanjutkan download?"
+        )
+        return messagebox.askyesno("Konfirmasi Download", message, parent=self.root)
 
     def ask_output_path(self, filename):
         if threading.current_thread() is threading.main_thread():
@@ -270,6 +300,7 @@ class SimpleIDMApp:
     def _task_values(self, task_id, task):
         path = task.get("output_path") or ""
         name = os.path.basename(path) or f"Download #{task_id}"
+        category = task.get("category", "General")
         status = task.get("status", "unknown")
         total = task.get("total") or 0
         downloaded = task.get("downloaded") or 0
@@ -287,6 +318,7 @@ class SimpleIDMApp:
 
         return (
             name,
+            category,
             status,
             progress,
             f"{self._format_bytes(speed)}/s",

@@ -1,0 +1,2 @@
+APP_NAME = "SimpleIDM"
+APP_VERSION = "1.1.0"

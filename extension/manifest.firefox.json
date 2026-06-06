@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "SimpleIDM Link Capture",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Send browser downloads and link clicks to the local SimpleIDM Python app.",
   "permissions": [
     "contextMenus",
