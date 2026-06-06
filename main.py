@@ -77,6 +77,7 @@ def main():
             port=args.port,
             download_dir=args.dir,
             parts=args.parts,
+            ask_path=args.ask_path,
         )
         root.mainloop()
         return

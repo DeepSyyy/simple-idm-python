@@ -22,7 +22,7 @@ Atau jalankan executable yang sudah dibuat:
 ./dist/SimpleIDM
 ```
 
-Di GUI, download dari extension browser akan membuka dialog `Save As` sebelum download dimulai. Window utama menampilkan status, progress, path, dan kecepatan download.
+Di GUI, download dari extension browser langsung diarahkan ke SimpleIDM dan disimpan ke folder default. Window utama menampilkan status, progress, path, dan kecepatan download. Centang `Tanya lokasi simpan sebelum download` kalau ingin memilih path untuk download tertentu.
 
 Jalankan mode receiver:
 
@@ -100,6 +100,8 @@ Setelah itu:
 - Atau mulai download biasa dari browser. Extension akan mencoba mengirim link ke aplikasi lokal dan membatalkan download browser jika berhasil.
 
 Kalau aplikasi lokal belum aktif, download tetap berjalan di browser.
+
+Jika file di folder `extension/` berubah, klik tombol reload pada extension di halaman extension browser.
 
 ## Install Extension Firefox
 

@@ -17,12 +17,13 @@ async function sendToSimpleIDM(url, filename) {
     },
     body: JSON.stringify({ url, filename })
   });
+  const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new Error(`SimpleIDM returned HTTP ${response.status}`);
+    throw new Error(payload.error || `SimpleIDM returned HTTP ${response.status}`);
   }
 
-  return response.json();
+  return payload;
 }
 
 function notify(title, message) {
@@ -32,6 +33,48 @@ function notify(title, message) {
     title,
     message
   });
+}
+
+function downloadAction(action, ...args) {
+  return new Promise((resolve, reject) => {
+    chrome.downloads[action](...args, (...callbackArgs) => {
+      const error = chrome.runtime.lastError;
+
+      if (error) {
+        reject(new Error(error.message));
+        return;
+      }
+
+      resolve(callbackArgs[0]);
+    });
+  });
+}
+
+async function pauseBrowserDownload(downloadId) {
+  try {
+    await downloadAction("pause", downloadId);
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+async function resumeBrowserDownload(downloadId) {
+  try {
+    await downloadAction("resume", downloadId);
+  } catch (error) {
+    // If the browser cannot resume, keep the notification as the source of truth.
+  }
+}
+
+async function cancelBrowserDownload(downloadId) {
+  await downloadAction("cancel", downloadId);
+
+  try {
+    await downloadAction("erase", { id: downloadId });
+  } catch (error) {
+    // Some browsers keep cancelled download history entries. That is harmless.
+  }
 }
 
 chrome.contextMenus.onClicked.addListener(async (info) => {
@@ -58,12 +101,17 @@ chrome.downloads.onCreated.addListener(async (downloadItem) => {
 
   capturedDownloadIds.add(downloadItem.id);
 
+  const paused = await pauseBrowserDownload(downloadItem.id);
+
   try {
     await sendToSimpleIDM(downloadItem.url, downloadItem.filename);
-    chrome.downloads.cancel(downloadItem.id);
-    chrome.downloads.erase({ id: downloadItem.id });
+    await cancelBrowserDownload(downloadItem.id);
     notify("SimpleIDM", "Download browser dialihkan ke aplikasi.");
   } catch (error) {
-    notify("SimpleIDM belum aktif", "Download tetap berjalan di browser.");
+    if (paused) {
+      await resumeBrowserDownload(downloadItem.id);
+    }
+
+    notify("SimpleIDM", `${error.message} Download tetap berjalan di browser.`);
   }
 });

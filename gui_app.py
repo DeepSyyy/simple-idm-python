@@ -9,19 +9,28 @@ from idm_server import DEFAULT_DOWNLOAD_DIR, DEFAULT_HOST, DEFAULT_PORT, Downloa
 
 
 class SimpleIDMApp:
-    def __init__(self, root, host=DEFAULT_HOST, port=DEFAULT_PORT, download_dir=DEFAULT_DOWNLOAD_DIR, parts=8):
+    def __init__(
+        self,
+        root,
+        host=DEFAULT_HOST,
+        port=DEFAULT_PORT,
+        download_dir=DEFAULT_DOWNLOAD_DIR,
+        parts=8,
+        ask_path=False,
+    ):
         self.root = root
         self.host = host
         self.port = port
         self.download_dir = download_dir
         self.parts = parts
+        self.ask_path_var = tk.BooleanVar(value=ask_path)
         self.server = None
         self.server_thread = None
 
         self.manager = DownloadManager(
             download_dir=self.download_dir,
             parts=self.parts,
-            ask_path=True,
+            ask_path=ask_path,
             path_chooser=self.ask_output_path,
         )
 
@@ -100,9 +109,15 @@ class SimpleIDMApp:
         self.folder_label.pack(anchor="w")
         ttk.Label(
             status_panel,
-            text="Download dari browser akan menampilkan dialog Save As sebelum dimulai.",
+            text="Download dari browser langsung diarahkan ke SimpleIDM dan disimpan ke folder default.",
             style="Panel.TLabel",
         ).pack(anchor="w", pady=(4, 0))
+        ttk.Checkbutton(
+            status_panel,
+            text="Tanya lokasi simpan sebelum download",
+            variable=self.ask_path_var,
+            command=self.toggle_ask_path,
+        ).pack(anchor="w", pady=(8, 0))
 
         columns = ("name", "status", "progress", "speed", "path")
         self.tree = ttk.Treeview(outer, columns=columns, show="headings", selectmode="browse")
@@ -155,6 +170,9 @@ class SimpleIDMApp:
         self.manager.download_dir = folder
         os.makedirs(folder, exist_ok=True)
         self.folder_label.configure(text=f"Folder default: {os.path.abspath(folder)}")
+
+    def toggle_ask_path(self):
+        self.manager.ask_path = self.ask_path_var.get()
 
     def ask_output_path(self, filename):
         if threading.current_thread() is threading.main_thread():
@@ -290,6 +308,7 @@ def main():
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--dir", default=DEFAULT_DOWNLOAD_DIR)
     parser.add_argument("--parts", type=int, default=8)
+    parser.add_argument("--ask-path", action="store_true")
     args = parser.parse_args()
 
     root = tk.Tk()
@@ -299,6 +318,7 @@ def main():
         port=args.port,
         download_dir=args.dir,
         parts=args.parts,
+        ask_path=args.ask_path,
     )
     root.mainloop()
 
