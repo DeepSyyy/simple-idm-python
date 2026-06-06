@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "SimpleIDM Link Capture",
+  "version": "1.0.0",
+  "description": "Send browser downloads and link clicks to the local SimpleIDM app.",
+  "permissions": [
+    "contextMenus",
+    "downloads",
+    "notifications"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:8765/*",
+    "http://localhost:8765/*",
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {
+    "128": "icon.svg"
+  }
+}
